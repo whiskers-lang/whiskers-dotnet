@@ -1,0 +1,73 @@
+name: PR
+
+on:
+  pull_request:
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore
+        run: dotnet restore Whiskers.slnx
+
+      - name: Build
+        run: dotnet build Whiskers.slnx --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test Whiskers.slnx --configuration Release --no-build
+
+      - name: Fetch base branch
+        run: git fetch origin '${{ github.base_ref }}'
+
+      - name: Read versions
+        id: v
+        run: |
+          extract='s|.*<Version>\([^<]*\)</Version>.*|\1|p'
+          head_v=$(sed -n "$extract" src/Whiskers/Whiskers.csproj | head -n1)
+          base_v=$(git show "origin/${{ github.base_ref }}:src/Whiskers/Whiskers.csproj" | sed -n "$extract" | head -n1)
+          echo "head=$head_v" >> "$GITHUB_OUTPUT"
+          echo "base=$base_v" >> "$GITHUB_OUTPUT"
+          echo "Head version: $head_v"
+          echo "Base version: $base_v"
+
+      - name: Require version bump when C# under src/ changed
+        run: |
+          if git diff --name-only "origin/${{ github.base_ref }}...HEAD" -- 'src/**/*.cs' | grep -q .; then
+            if [ "${{ steps.v.outputs.head }}" = "${{ steps.v.outputs.base }}" ]; then
+              echo "::error::C# changes under src/ detected but Version was not bumped (still ${{ steps.v.outputs.head }})."
+              exit 1
+            fi
+          fi
+
+      - name: Reject prerelease when targeting main
+        if: github.base_ref == 'main'
+        run: |
+          v='${{ steps.v.outputs.head }}'
+          if [[ "$v" == *-* ]]; then
+            echo "::error::Prerelease version '$v' is not allowed on main."
+            exit 1
+          fi
+
+      - name: Ensure version does not already exist on NuGet
+        run: |
+          v='${{ steps.v.outputs.head }}'
+          url='https://api.nuget.org/v3-flatcontainer/whiskers/index.json'
+          code=$(curl -sSL -o /tmp/versions.json -w '%{http_code}' "$url")
+          case "$code" in
+            404) echo "Package not yet published; version $v is unique."; exit 0 ;;
+            200) ;;
+            *) echo "::error::NuGet index request failed (HTTP $code)"; exit 1 ;;
+          esac
+          if jq -e --arg v "$v" '.versions | index($v)' /tmp/versions.json >/dev/null; then
+            echo "::error::Version $v already exists on NuGet."
+            exit 1
+          fi
