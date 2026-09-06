@@ -1,0 +1,6 @@
+[submodule "spec"]
+	path = spec
+	url = https://github.com/whiskers-lang/spec.git
+[submodule "mustache-spec"]
+	path = mustache-spec
+	url = https://github.com/mustache/spec.git
