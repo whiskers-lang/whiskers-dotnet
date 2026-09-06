@@ -1,0 +1,15 @@
+{
+  "name": "whiskers-dotnet",
+  "image": "mcr.microsoft.com/devcontainers/dotnet:1-10.0-noble",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/whiskers-dotnet,type=bind,consistency=cached",
+  "workspaceFolder": "/whiskers-dotnet",
+  "postCreateCommand": "git submodule update --init --recursive && dotnet restore Whiskers.slnx",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-dotnettools.csdevkit",
+        "redhat.vscode-yaml"
+      ]
+    }
+  }
+}
