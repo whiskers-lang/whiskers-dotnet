@@ -9,7 +9,10 @@
       "extensions": [
         "ms-dotnettools.csdevkit",
         "redhat.vscode-yaml"
-      ]
+      ],
+      "settings": {
+        "window.title": "whiskers-dotnet${separator}${localWorkspaceFolder}"
+      }
     }
   }
 }
