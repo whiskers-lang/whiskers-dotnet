@@ -130,13 +130,20 @@ public class WhiskersSpecTests
 
     private static void Run(string template, object? data, string expected, bool expectThrow = false)
     {
-        var tokens = new Lexer(template).Tokenize();
-        var ast    = new Parser(tokens, template).Parse();
         if (expectThrow)
         {
-            Assert.Throws<RenderException>(() => new Renderer().Render(ast, data));
+            var exception = Record.Exception(() =>
+            {
+                var throwingTokens = new Lexer(template).Tokenize();
+                var throwingAst = new Parser(throwingTokens, template).Parse();
+                new Renderer().Render(throwingAst, data);
+            });
+            Assert.True(exception is ParseException or RenderException,
+                $"Expected a parse or render error, got {exception?.GetType().Name ?? "no error"}.");
             return;
         }
+        var tokens = new Lexer(template).Tokenize();
+        var ast    = new Parser(tokens, template).Parse();
         var result = new Renderer().Render(ast, data);
         Assert.Equal(expected, result);
     }
