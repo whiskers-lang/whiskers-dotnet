@@ -5,6 +5,7 @@ public sealed class Parser(IReadOnlyList<Token> tokens, string source = "")
     private int _pos;
     private string _openDelim = "{{";
     private string _closeDelim = "}}";
+    private readonly HashSet<string> _activeAliases = [];
 
     public TemplateNode Parse()
     {
@@ -106,7 +107,10 @@ public sealed class Parser(IReadOnlyList<Token> tokens, string source = "")
         if (Current().Kind == TokenKind.Colon)
         {
             Advance();
-            alias = Consume(TokenKind.Ident).Value;
+            var aliasToken = Consume(TokenKind.Ident);
+            alias = aliasToken.Value;
+            if (!_activeAliases.Add(alias))
+                throw new ParseException($"Alias '{alias}' duplicates an alias from an enclosing section at position {aliasToken.Position}");
         }
 
         var args = new List<Argument>();
@@ -139,6 +143,9 @@ public sealed class Parser(IReadOnlyList<Token> tokens, string source = "")
         var closeKey = ConsumeCloseTag();
         if (closeKey != key)
             throw new ParseException($"Close tag '{{/{closeKey}}}' does not match opener '{{{sigil}{key}}}'");
+
+        if (alias != null)
+            _activeAliases.Remove(alias);
 
         return new SectionNode(sigil, key, alias, args, children, contentStart, contentEnd, openDelim, closeDelim);
     }

@@ -48,6 +48,18 @@ internal sealed class ContextStack
         if (key.StartsWith("@"))
         {
             var metaKey = key[1..];
+            var metadataDot = metaKey.IndexOf('.');
+            if (metadataDot >= 0)
+            {
+                var alias = metaKey[..metadataDot];
+                metaKey = metaKey[(metadataDot + 1)..];
+                for (int i = _frames.Count - 1; i >= 0; i--)
+                {
+                    if (_frames[i].Alias != alias) continue;
+                    return _frames[i].Metadata?.TryGetValue(metaKey, out value) == true;
+                }
+                return false;
+            }
             for (int i = _frames.Count - 1; i >= 0; i--)
                 if (_frames[i].Metadata?.TryGetValue(metaKey, out value) == true)
                     return true;
