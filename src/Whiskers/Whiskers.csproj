@@ -9,7 +9,7 @@
 
   <PropertyGroup>
     <PackageId>Whiskers</PackageId>
-    <Version>0.1.0</Version>
+    <Version>0.2.0</Version>
     <Authors>whiskers-lang</Authors>
     <Description>A strict superset of Mustache with named scopes, presence and null checks, iteration metadata, lambda arguments, and strict mode.</Description>
     <PackageTags>template;mustache;whiskers;templating</PackageTags>
