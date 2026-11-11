@@ -39,8 +39,9 @@ public sealed class Parser(IReadOnlyList<Token> tokens, string source = "")
     {
         Advance(); // consume OpenRaw
         var key = ParseKeypath();
+        var args = ParseArguments();
         Consume(TokenKind.CloseRaw);
-        return new VariableNode(key, Escape: false);
+        return new VariableNode(key, Escape: false) { Arguments = args };
     }
 
     private INode ParseTag()
@@ -64,16 +65,18 @@ public sealed class Parser(IReadOnlyList<Token> tokens, string source = "")
 
         // No sigil — variable
         var key = ParseKeypath();
+        var args = ParseArguments();
         Consume(TokenKind.CloseTag);
-        return new VariableNode(key);
+        return new VariableNode(key) { Arguments = args };
     }
 
     private VariableNode ParseAmpersandVariable()
     {
         Advance(); // consume '&'
         var key = ParseKeypath();
+        var args = ParseArguments();
         Consume(TokenKind.CloseTag);
-        return new VariableNode(key, Escape: false);
+        return new VariableNode(key, Escape: false) { Arguments = args };
     }
 
     private PartialNode ParsePartial()
@@ -113,23 +116,7 @@ public sealed class Parser(IReadOnlyList<Token> tokens, string source = "")
                 throw new ParseException($"Alias '{alias}' duplicates an alias from an enclosing section at position {aliasToken.Position}");
         }
 
-        var args = new List<Argument>();
-        while (Current().Kind is TokenKind.StringLit or TokenKind.NumLit
-               or TokenKind.Ident || Current().Kind == TokenKind.Sigil && Current().Value == "*")
-        {
-            if (Current().Kind == TokenKind.StringLit)
-            { args.Add(new StringArgument(Current().Value)); Advance(); }
-            else if (Current().Kind == TokenKind.NumLit)
-            { args.Add(new NumberArgument(Current().Value)); Advance(); }
-            else if (Current().Kind == TokenKind.Ident)
-            { args.Add(new StringArgument(Current().Value)); Advance(); }
-            else
-            {
-                Advance();
-                args.Add(new VariableArgument(ParseKeypath()));
-            }
-        }
-
+        var args = ParseArguments();
         Consume(TokenKind.CloseTag);
         int contentStart = Current().Position;
         string openDelim  = _openDelim;
@@ -148,6 +135,27 @@ public sealed class Parser(IReadOnlyList<Token> tokens, string source = "")
             _activeAliases.Remove(alias);
 
         return new SectionNode(sigil, key, alias, args, children, contentStart, contentEnd, openDelim, closeDelim);
+    }
+
+    private List<Argument> ParseArguments()
+    {
+        var args = new List<Argument>();
+        while (Current().Kind is TokenKind.StringLit or TokenKind.NumLit
+               or TokenKind.Ident || Current().Kind == TokenKind.Sigil && Current().Value == "*")
+        {
+            if (Current().Kind == TokenKind.StringLit)
+            { args.Add(new StringArgument(Current().Value)); Advance(); }
+            else if (Current().Kind == TokenKind.NumLit)
+            { args.Add(new NumberArgument(Current().Value)); Advance(); }
+            else if (Current().Kind == TokenKind.Ident)
+            { args.Add(new StringArgument(Current().Value)); Advance(); }
+            else
+            {
+                Advance();
+                args.Add(new VariableArgument(ParseKeypath()));
+            }
+        }
+        return args;
     }
 
     private string ConsumeCloseTag()

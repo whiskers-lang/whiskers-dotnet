@@ -53,7 +53,13 @@ public sealed class Renderer(IPartialLoader? partials = null, RenderOptions? opt
             if (_strictMode) throw new RenderException($"Key '{node.Key}' not found");
             return;
         }
-        if (value is Func<object> noArgLambda) value = noArgLambda();
+        if (node.Arguments.Count > 0)
+        {
+            if (value is not Func<object?[], object> argLambda)
+                throw new RenderException($"Key '{node.Key}' does not accept arguments");
+            value = argLambda(ConvertArgs(node.Arguments, stack));
+        }
+        else if (value is Func<object> noArgLambda) value = noArgLambda();
         var str = Convert.ToString(value, CultureInfo.InvariantCulture) ?? "";
         var escape = node.Escape && !_options.SkipHtmlEncoding;
         sb.Append(escape ? HtmlEscape(str) : str);
