@@ -6,7 +6,10 @@ public sealed record TextNode(string Content) : INode;
 public sealed record CommentNode(string Content) : INode;
 
 // Escape=true for {{name}}, false for {{{name}}} and {{& name}}
-public sealed record VariableNode(string Key, bool Escape = true) : INode;
+public sealed record VariableNode(string Key, bool Escape = true) : INode
+{
+    public IReadOnlyList<Argument> Arguments { get; init; } = [];
+}
 public sealed record PartialNode(string Name, string Indent = "") : INode;
 public sealed record SetDelimiterNode(string Open, string Close) : INode;
 

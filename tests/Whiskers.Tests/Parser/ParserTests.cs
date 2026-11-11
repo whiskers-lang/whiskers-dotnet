@@ -153,6 +153,30 @@ public class ParserTests
     }
 
     [Fact]
+    public void VariableWithoutArguments_HasEmptyArguments()
+    {
+        var node = Assert.IsType<VariableNode>(Assert.Single(Parse("{{name}}").Children));
+        Assert.Empty(node.Arguments);
+    }
+
+    [Theory]
+    [InlineData("{{fn \"a\" 1 b *value}}", true)]
+    [InlineData("{{{fn \"a\" 1 b *value}}}", false)]
+    [InlineData("{{& fn \"a\" 1 b *value}}", false)]
+    [InlineData("{{=<% %>=}}<%fn \"a\" 1 b *value%>", true)]
+    public void InterpolationLambda_ParsesArguments(string template, bool escape)
+    {
+        var node = Assert.IsType<VariableNode>(Parse(template).Children.Last());
+        Assert.Equal("fn", node.Key);
+        Assert.Equal(escape, node.Escape);
+        Assert.Equal(4, node.Arguments.Count);
+        Assert.Equal("a", Assert.IsType<StringArgument>(node.Arguments[0]).Value);
+        Assert.Equal("1", Assert.IsType<NumberArgument>(node.Arguments[1]).Value);
+        Assert.Equal("b", Assert.IsType<StringArgument>(node.Arguments[2]).Value);
+        Assert.Equal("value", Assert.IsType<VariableArgument>(node.Arguments[3]).Key);
+    }
+
+    [Fact]
     public void Partial_ProducesPartialNode()
     {
         var node = Assert.IsType<PartialNode>(Assert.Single(Parse("{{> header}}").Children));

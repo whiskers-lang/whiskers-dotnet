@@ -222,6 +222,72 @@ public class RendererTests
         Assert.Equal("2026-01-01", Render("{{ts}}", data));
     }
 
+    [Fact] public void Lambda_InterpolationArguments_PreserveTypesAndResolveContext()
+    {
+        var inspect = (Func<object?[], object>)(args =>
+        {
+            Assert.Equal("value", Assert.IsType<string>(args[0]));
+            Assert.Equal("value", Assert.IsType<string>(args[1]));
+            Assert.Equal("resolved", Assert.IsType<string>(args[2]));
+            Assert.Equal(42, Assert.IsType<int>(args[3]));
+            Assert.Equal(3.14, Assert.IsType<double>(args[4]));
+            return "ok";
+        });
+        var data = D(("inspect", inspect), ("item", D(("value", "resolved"))));
+        Assert.Equal("ok", Render(
+            "{{#item}}{{inspect value \"value\" *value 42 3.14}}{{/item}}", data));
+    }
+
+    [Theory]
+    [InlineData("{{recall key}}", "&lt;b&gt;{{name}}&lt;/b&gt;")]
+    [InlineData("{{{recall key}}}", "<b>{{name}}</b>")]
+    [InlineData("{{& recall key}}", "<b>{{name}}</b>")]
+    [InlineData("{{=<% %>=}}<%recall key%>", "&lt;b&gt;{{name}}&lt;/b&gt;")]
+    public void Lambda_InterpolationArguments_UseNormalInterpolationSemantics(string template, string expected)
+    {
+        var data = D(("name", "World"),
+            ("recall", (Func<object?[], string>)(_ => "<b>{{name}}</b>")));
+        Assert.Equal(expected, Render(template, data));
+        Assert.Equal("<b>{{name}}</b>", RenderOpts("{{recall key}}", data,
+            new RenderOptions(SkipHtmlEncoding: true)));
+    }
+
+    [Fact] public void Lambda_CacheSection_CanBeRecalledWithoutSection()
+    {
+        var cache = new Dictionary<string, string>();
+        var data = D(("name", "World"), ("key", "greeting"),
+            ("cache", (Func<object?[], string, Func<string, string>, object>)((args, raw, render) =>
+            {
+                cache[(string)args[0]!] = render(raw);
+                return "";
+            })),
+            ("recall", (Func<object?[], object>)(args => cache[(string)args[0]!])));
+        Assert.Equal("Hello, World!|Hello, World!", Render(
+            "{{#cache greeting}}Hello, {{name}}!{{/cache}}{{recall greeting}}|{{recall *key}}", data));
+    }
+
+    [Theory]
+    [InlineData("text")]
+    [InlineData(false)]
+    [InlineData(null)]
+    public void Lambda_InterpolationArguments_RejectNonFunctions(object? value)
+    {
+        var error = Assert.Throws<RenderException>(() => Render("{{value key}}", D(("value", value))));
+        Assert.Equal("Key 'value' does not accept arguments", error.Message);
+    }
+
+    [Fact] public void Lambda_InterpolationArguments_RejectNoArgFunction()
+    {
+        var data = D(("fn", (Func<object>)(() => throw new InvalidOperationException())));
+        Assert.Throws<RenderException>(() => Render("{{fn key}}", data));
+    }
+
+    [Fact] public void Lambda_InterpolationArguments_PreserveMissingKeyBehavior()
+    {
+        Assert.Equal("", Render("{{missing key}}", D()));
+        Assert.Throws<RenderException>(() => Render("{{missing key}}", D(), strict: true));
+    }
+
     // --- InvariantCulture ---
 
     [Fact] public void Variable_Double_UsesInvariantCulture()
