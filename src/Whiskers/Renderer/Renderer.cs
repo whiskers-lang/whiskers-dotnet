@@ -33,6 +33,12 @@ public sealed class Renderer(IPartialLoader? partials = null, RenderOptions? opt
             RenderNode(node, stack, sb, source);
     }
 
+    private void RenderTemplate(string source, ContextStack stack, StringBuilder sb, string open = "{{", string close = "}}")
+    {
+        var ast = new Parser(new Lexer(source, open, close).Tokenize(), source).Parse();
+        RenderNodes(StripStandalone(ast.Children), stack, sb, source);
+    }
+
     private void RenderNode(INode node, ContextStack stack, StringBuilder sb, string source)
     {
         switch (node)
@@ -108,8 +114,7 @@ public sealed class Renderer(IPartialLoader? partials = null, RenderOptions? opt
                 Func<string, string> renderFn = tmpl =>
                 {
                     var rSb = new StringBuilder();
-                    var rAst = new Parser(new Lexer(tmpl, node.ContentOpenDelim, node.ContentCloseDelim).Tokenize(), tmpl).Parse();
-                    RenderNodes(rAst.Children, stack, rSb, tmpl);
+                    RenderTemplate(tmpl, stack, rSb, node.ContentOpenDelim, node.ContentCloseDelim);
                     return rSb.ToString();
                 };
                 result = Convert.ToString(rcLambda(args, raw, renderFn), CultureInfo.InvariantCulture) ?? "";
@@ -126,9 +131,7 @@ public sealed class Renderer(IPartialLoader? partials = null, RenderOptions? opt
             {
                 throw new RenderException($"Key '{node.Key}' does not accept arguments");
             }
-            var reTokens = new Lexer(result).Tokenize();
-            var reAst = new Parser(reTokens, result).Parse();
-            RenderNodes(reAst.Children, stack, sb, result);
+            RenderTemplate(result, stack, sb);
             return;
         }
 
@@ -147,8 +150,7 @@ public sealed class Renderer(IPartialLoader? partials = null, RenderOptions? opt
                     Func<string, string> renderFn = tmpl =>
                     {
                         var rSb = new StringBuilder();
-                        var rAst = new Parser(new Lexer(tmpl, node.ContentOpenDelim, node.ContentCloseDelim).Tokenize(), tmpl).Parse();
-                        RenderNodes(rAst.Children, stack, rSb, tmpl);
+                        RenderTemplate(tmpl, stack, rSb, node.ContentOpenDelim, node.ContentCloseDelim);
                         return rSb.ToString();
                     };
                     result = Convert.ToString(rcLambda(raw, renderFn), CultureInfo.InvariantCulture) ?? "";
@@ -163,9 +165,7 @@ public sealed class Renderer(IPartialLoader? partials = null, RenderOptions? opt
                     result = ((Func<string, string>)value)(raw);
                     break;
             }
-            var reTokens = new Lexer(result).Tokenize();
-            var reAst = new Parser(reTokens, result).Parse();
-            RenderNodes(reAst.Children, stack, sb, result);
+            RenderTemplate(result, stack, sb);
             return;
         }
 
@@ -284,22 +284,23 @@ public sealed class Renderer(IPartialLoader? partials = null, RenderOptions? opt
 
         for (int i = 0; i < list.Count; i++)
         {
-            switch (list[i])
+            // Detect line boundaries before earlier standalone tags have trimmed them.
+            switch (nodes[i])
             {
                 case CommentNode or SetDelimiterNode:
-                    if (CheckBefore(list, i, out _, out var trimTo, firstLineContinued)
-                     && CheckAfter(list, i, out var trimFrom))
+                    if (CheckBefore(nodes, i, out _, out var trimLength, firstLineContinued)
+                     && CheckAfter(nodes, i, out var trimFrom))
                     {
-                        ApplyBeforeTrim(list, i, trimTo);
+                        ApplyBeforeTrim(list, i, trimLength);
                         ApplyAfterTrim(list, i, trimFrom);
                     }
                     break;
 
                 case PartialNode pn:
-                    if (CheckBefore(list, i, out var indent, out var pTrimTo, firstLineContinued)
-                     && CheckAfter(list, i, out var pTrimFrom))
+                    if (CheckBefore(nodes, i, out var indent, out var pTrimLength, firstLineContinued)
+                     && CheckAfter(nodes, i, out var pTrimFrom))
                     {
-                        ApplyBeforeTrim(list, i, pTrimTo);
+                        ApplyBeforeTrim(list, i, pTrimLength);
                         ApplyAfterTrim(list, i, pTrimFrom);
                         if (indent.Length > 0)
                             list[i] = new PartialNode(pn.Name, indent);
@@ -313,8 +314,8 @@ public sealed class Renderer(IPartialLoader? partials = null, RenderOptions? opt
                     // Section OPEN standalone: parent-before + first-child
                     bool openStandalone = false;
                     int contentStartAdjust = 0;
-                    if (CheckBefore(list, i, out _, out var openBefore, firstLineContinued)
-                     && CheckAfterFirst(sc, out var openAfter))
+                    if (CheckBefore(nodes, i, out _, out var openBefore, firstLineContinued)
+                     && CheckAfterFirst(sn.Children, out var openAfter))
                     {
                         openStandalone = true;
                         ApplyBeforeTrim(list, i, openBefore);
@@ -323,16 +324,19 @@ public sealed class Renderer(IPartialLoader? partials = null, RenderOptions? opt
                     }
 
                     // Section CLOSE standalone: last-child + parent-after
-                    if (CheckBeforeLast(sc, out var closeBefore)
-                     && CheckAfter(list, i, out var closeAfter))
+                    int contentEndAdjust = 0;
+                    if (CheckBeforeLast(sn.Children, out var closeBefore)
+                     && CheckAfter(nodes, i, out var closeAfter))
                     {
                         ApplyBeforeLast(sc, closeBefore);
                         ApplyAfterTrim(list, i, closeAfter);
+                        contentEndAdjust = closeBefore ?? 0;
                     }
 
                     var stripped = sn with
                     {
                         ContentStart = sn.ContentStart + contentStartAdjust,
+                        ContentEnd   = sn.ContentEnd - contentEndAdjust,
                         Children     = StripStandalone(sc, !openStandalone),
                     };
                     list[i] = stripped;
@@ -345,10 +349,10 @@ public sealed class Renderer(IPartialLoader? partials = null, RenderOptions? opt
     }
 
     // True if only spaces/tabs precede the tag on its line (or it's at the start of input).
-    private static bool CheckBefore(List<INode> list, int i, out string indent, out int? trimTo, bool firstLineContinued = false)
+    private static bool CheckBefore(IReadOnlyList<INode> list, int i, out string indent, out int? trimLength, bool firstLineContinued = false)
     {
         indent = "";
-        trimTo = null;
+        trimLength = null;
         if (i == 0) return !firstLineContinued;
         if (list[i - 1] is not TextNode prev) return false;
         var text = prev.Content;
@@ -359,12 +363,12 @@ public sealed class Renderer(IPartialLoader? partials = null, RenderOptions? opt
         // Any node before the text node, or a continued parent line, means not standalone.
         if (nl < 0 && (firstLineContinued || (i >= 2 && text.Length > 0))) return false;
         indent = suffix;
-        trimTo = nl >= 0 ? nl + 1 : 0;
+        trimLength = suffix.Length;
         return true;
     }
 
     // True if a newline (or end of input) follows the tag.
-    private static bool CheckAfter(List<INode> list, int i, out int? trimFrom)
+    private static bool CheckAfter(IReadOnlyList<INode> list, int i, out int? trimFrom)
     {
         trimFrom = null;
         if (i >= list.Count - 1) return true;
@@ -376,10 +380,10 @@ public sealed class Renderer(IPartialLoader? partials = null, RenderOptions? opt
     }
 
     // True if the first child of a section starts with a newline.
-    private static bool CheckAfterFirst(List<INode> sc, out int? trimFrom)
+    private static bool CheckAfterFirst(IReadOnlyList<INode> sc, out int? trimFrom)
     {
         trimFrom = null;
-        if (sc.Count == 0) return true;
+        if (sc.Count == 0) return false;
         if (sc[0] is not TextNode first) return false;
         if (first.Content.StartsWith("\r\n")) { trimFrom = 2; return true; }
         if (first.Content.StartsWith("\n"))   { trimFrom = 1; return true; }
@@ -387,25 +391,25 @@ public sealed class Renderer(IPartialLoader? partials = null, RenderOptions? opt
     }
 
     // True if the last child of a section has only spaces/tabs after its last newline.
-    private static bool CheckBeforeLast(List<INode> sc, out int? trimTo)
+    private static bool CheckBeforeLast(IReadOnlyList<INode> sc, out int? trimLength)
     {
-        trimTo = null;
-        if (sc.Count == 0) return true;
+        trimLength = null;
+        if (sc.Count == 0) return false;
         if (sc[^1] is not TextNode last) return false;
         var text = last.Content;
         int nl = text.LastIndexOf('\n');
         string suffix = nl >= 0 ? text[(nl + 1)..] : text;
         if (!suffix.All(c => c == ' ' || c == '\t')) return false;
-        // No newline and preceding nodes on the same line → close tag is not standalone.
-        if (nl < 0 && sc.Count > 1) return false;
-        trimTo = nl >= 0 ? nl + 1 : 0;
+        // Without a newline, the opening tag is still on the same line.
+        if (nl < 0) return false;
+        trimLength = suffix.Length;
         return true;
     }
 
-    private static void ApplyBeforeTrim(List<INode> list, int i, int? trimTo)
+    private static void ApplyBeforeTrim(List<INode> list, int i, int? trimLength)
     {
-        if (trimTo.HasValue && i > 0 && list[i - 1] is TextNode prev)
-            list[i - 1] = prev with { Content = prev.Content[..trimTo.Value] };
+        if (trimLength.HasValue && i > 0 && list[i - 1] is TextNode prev)
+            list[i - 1] = prev with { Content = prev.Content[..(prev.Content.Length - trimLength.Value)] };
     }
 
     private static void ApplyAfterTrim(List<INode> list, int i, int? trimFrom)
@@ -420,10 +424,10 @@ public sealed class Renderer(IPartialLoader? partials = null, RenderOptions? opt
             sc[0] = first with { Content = first.Content[trimFrom.Value..] };
     }
 
-    private static void ApplyBeforeLast(List<INode> sc, int? trimTo)
+    private static void ApplyBeforeLast(List<INode> sc, int? trimLength)
     {
-        if (trimTo.HasValue && sc.Count > 0 && sc[^1] is TextNode last)
-            sc[^1] = last with { Content = last.Content[..trimTo.Value] };
+        if (trimLength.HasValue && sc.Count > 0 && sc[^1] is TextNode last)
+            sc[^1] = last with { Content = last.Content[..(last.Content.Length - trimLength.Value)] };
     }
 
     private static Dictionary<string, object?> BuildMeta(int i, int total) => new()
