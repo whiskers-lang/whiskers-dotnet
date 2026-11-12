@@ -1,3 +1,4 @@
+using System.Globalization;
 using Whiskers;
 using YamlDotNet.RepresentationModel;
 
@@ -31,6 +32,8 @@ public class WhiskersSpecTests
             (object)$"<b>{render(s)}</b>"),
         // returns a Mustache snippet; used to verify re-rendering picks up context
         ["to-name"]      = (Func<string, object>)(_ => (object)"{{name}}"),
+        ["join-args"]    = (Func<object?[], object>)(args => string.Join("|",
+            args.Select(arg => Convert.ToString(arg, CultureInfo.InvariantCulture)))),
         ["truncate"]     = (Func<object[], string, Func<string, string>, object>)((args, raw, render) =>
         {
             int limit = (int)args[0];

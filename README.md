@@ -26,6 +26,17 @@ var output = Renderer.Render("Hello, {{name}}!", new { name = "world" });
 For sections, partials, aliases, lambdas, and every other language
 feature, see the [specification][spec].
 
+### Whitespace
+
+Standalone section, comment, delimiter-change, and partial tags consume their
+own lines, including indentation and the line ending. Consecutive standalone
+tags follow the same rules. Other content keeps its whitespace and line endings.
+
+Section lambda bodies exclude the leading line ending and closing-tag
+indentation consumed by standalone processing. Their results and templates
+passed to render callbacks follow the same standalone rules as ordinary
+templates; internal template syntax and intentional blank lines are preserved.
+
 ## Repository layout
 
 ```
