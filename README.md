@@ -26,6 +26,49 @@ var output = Renderer.Render("Hello, {{name}}!", new { name = "world" });
 For sections, partials, aliases, lambdas, and every other language
 feature, see the [specification][spec].
 
+### Dictionary partials
+
+Use `DictionaryPartialLoader` for partial templates already stored in memory:
+
+```csharp
+var templates = new Dictionary<string, string>(StringComparer.Ordinal)
+{
+    ["greeting"] = "Hello {{name}}!",
+};
+var loader = new DictionaryPartialLoader(templates);
+var output = Renderer.Render(
+    "{{> greeting}}",
+    new Dictionary<string, object> { ["name"] = "World" },
+    loader);
+// Hello World!
+```
+
+In PowerShell, after loading `Whiskers.dll` with `Add-Type -Path`:
+
+```powershell
+$templates = [System.Collections.Generic.Dictionary[string,string]]::new()
+$templates.Add('greeting', 'Hello {{name}}!')
+$loader = [Whiskers.DictionaryPartialLoader]::new($templates)
+$output = [Whiskers.Renderer]::Render(
+    '{{> greeting}}',
+    @{ name = 'World' },
+    $loader
+)
+# Hello World!
+```
+
+The loader preserves the dictionary's comparer and returns the stored source
+unchanged. Missing partials return `null` and render nothing; empty partials
+remain empty strings. Partials can include other dictionary partials, with the
+renderer retaining responsibility for parsing, standalone indentation, and
+recursion limits.
+
+The dictionary is retained, not copied or cached, so changes between renders
+are visible. This is not a thread-safety guarantee: do not mutate an ordinary
+dictionary concurrently with rendering. A null dictionary throws
+`ArgumentNullException`. Continue implementing `IPartialLoader` for custom
+storage or resolution strategies.
+
 ### Whitespace
 
 Standalone section, comment, delimiter-change, and partial tags consume their
