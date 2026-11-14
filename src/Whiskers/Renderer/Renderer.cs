@@ -59,13 +59,10 @@ public sealed class Renderer(IPartialLoader? partials = null, RenderOptions? opt
             if (_strictMode) throw new RenderException($"Key '{node.Key}' not found");
             return;
         }
-        if (node.Arguments.Count > 0)
+        if (!TryInvokeValueLambda(node.Arguments, stack, ref value) && node.Arguments.Count > 0)
         {
-            if (value is not Func<object?[], object> argLambda)
-                throw new RenderException($"Key '{node.Key}' does not accept arguments");
-            value = argLambda(ConvertArgs(node.Arguments, stack));
+            throw new RenderException($"Key '{node.Key}' does not accept arguments");
         }
-        else if (value is Func<object> noArgLambda) value = noArgLambda();
         var str = Convert.ToString(value, CultureInfo.InvariantCulture) ?? "";
         var escape = node.Escape && !_options.SkipHtmlEncoding;
         sb.Append(escape ? HtmlEscape(str) : str);
@@ -101,7 +98,11 @@ public sealed class Renderer(IPartialLoader? partials = null, RenderOptions? opt
             if (_strictMode) throw new RenderException($"Key '{node.Key}' not found");
             return;
         }
-        if (IsFalsy(value)) return;
+        if (TryInvokeValueLambda(node.Arguments, stack, ref value))
+        {
+            RenderSectionValue(node, value, stack, sb, source);
+            return;
+        }
 
         if (node.Arguments.Count > 0)
         {
@@ -134,6 +135,8 @@ public sealed class Renderer(IPartialLoader? partials = null, RenderOptions? opt
             RenderTemplate(result, stack, sb);
             return;
         }
+
+        if (IsFalsy(value)) return;
 
         if (value is Func<string, string>
                  or Func<string, object>
@@ -168,6 +171,13 @@ public sealed class Renderer(IPartialLoader? partials = null, RenderOptions? opt
             RenderTemplate(result, stack, sb);
             return;
         }
+
+        RenderSectionValue(node, value, stack, sb, source);
+    }
+
+    private void RenderSectionValue(SectionNode node, object? value, ContextStack stack, StringBuilder sb, string source)
+    {
+        if (value is null or false) return;
 
         // Iterate arrays/lists; treat dicts and scalars as single-context push
         if (value is IEnumerable seq && value is not string && value is not IDictionary)
@@ -438,6 +448,21 @@ public sealed class Renderer(IPartialLoader? partials = null, RenderOptions? opt
         ["last"]   = i == total - 1,
         ["length"] = total,
     };
+
+    private static bool TryInvokeValueLambda(IReadOnlyList<Argument> args, ContextStack stack, ref object? value)
+    {
+        if (args.Count > 0 && value is Func<object?[], object> argLambda)
+        {
+            value = argLambda(ConvertArgs(args, stack));
+            return true;
+        }
+        if (args.Count == 0 && value is Func<object> noArgLambda)
+        {
+            value = noArgLambda();
+            return true;
+        }
+        return false;
+    }
 
     private static object?[] ConvertArgs(IReadOnlyList<Argument> args, ContextStack stack) =>
         args.Select(a => a switch

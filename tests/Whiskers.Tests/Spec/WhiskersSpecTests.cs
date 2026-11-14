@@ -34,6 +34,8 @@ public class WhiskersSpecTests
         ["to-name"]      = (Func<string, object>)(_ => (object)"{{name}}"),
         ["join-args"]    = (Func<object?[], object>)(args => string.Join("|",
             args.Select(arg => Convert.ToString(arg, CultureInfo.InvariantCulture)))),
+        ["value-arg"]    = (Func<object?[], object?>)(args => args[0]),
+        ["value-null"]   = (Func<object?>)(() => null),
         ["truncate"]     = (Func<object[], string, Func<string, string>, object>)((args, raw, render) =>
         {
             int limit = (int)args[0];
