@@ -92,16 +92,11 @@ public class MustacheSpecTests
     private static void Run(string template, object? data, string expected,
                             Dictionary<string, string>? partials = null)
     {
-        IPartialLoader? loader = partials != null ? new DictLoader(partials) : null;
+        IPartialLoader? loader = partials != null ? new DictionaryPartialLoader(partials) : null;
         var tokens = new Lexer(template).Tokenize();
         var ast    = new Parser(tokens, template).Parse();
         var result = new Renderer(loader).Render(ast, data);
         Assert.Equal(expected, result);
-    }
-
-    private sealed class DictLoader(Dictionary<string, string> map) : IPartialLoader
-    {
-        public string? Load(string name) => map.TryGetValue(name, out var v) ? v : null;
     }
 
     // --- Spec categories (one Theory per file) ---
