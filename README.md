@@ -69,13 +69,45 @@ dictionary concurrently with rendering. A null dictionary throws
 `ArgumentNullException`. Continue implementing `IPartialLoader` for custom
 storage or resolution strategies.
 
+### Value lambdas in normal sections
+
+The interpolation delegate signatures `Func<object>` (no arguments) and
+`Func<object?[], object>` (template arguments) also work in `#` sections:
+
+```csharp
+var data = new Dictionary<string, object?>
+{
+    ["heading"] = (Func<object>)(() => "Report"),
+    ["choose"] = (Func<object?[], object?>)(args => args[0]),
+};
+var output = Renderer.Render(
+    "{{#heading}}Title: {{.}}{{/heading}} | {{#choose \"World\"}}Hello {{.}}!{{/choose}}",
+    data);
+// Title: Report | Hello World!
+```
+
+A value lambda is invoked exactly once per section occurrence, even for an empty
+body. The result follows ordinary section rules: null, false, and empty arrays
+skip the body; non-empty arrays iterate with aliases and metadata; other values
+become the body context with parent lookup still available. Empty strings, zero,
+and empty dictionaries remain truthy.
+
+The result is data, not template source: returned `{{tags}}` remain literal when
+interpolated through `{{.}}`, with normal HTML escaping. Section evaluation does
+not recursively invoke a returned delegate. Arguments use the same matching and
+conversion as interpolation.
+
+Raw-body section delegates retain their existing raw-text/render-callback
+contracts and template re-rendering behavior. Only `#` invokes value lambdas;
+inverted, presence, and nullness checks continue inspecting the function itself.
+
 ### Whitespace
 
 Standalone section, comment, delimiter-change, and partial tags consume their
 own lines, including indentation and the line ending. Consecutive standalone
 tags follow the same rules. Other content keeps its whitespace and line endings.
 
-Section lambda bodies exclude the leading line ending and closing-tag
+Raw-body section lambda bodies exclude the leading line ending and closing-tag
 indentation consumed by standalone processing. Their results and templates
 passed to render callbacks follow the same standalone rules as ordinary
 templates; internal template syntax and intentional blank lines are preserved.
