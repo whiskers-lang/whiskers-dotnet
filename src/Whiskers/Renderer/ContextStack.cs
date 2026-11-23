@@ -1,5 +1,7 @@
 using System.Collections;
+using System.Globalization;
 using System.Reflection;
+using System.Text;
 
 namespace Whiskers;
 
@@ -34,6 +36,95 @@ internal sealed class ContextStack
         => _frames.Add(new Frame(value, alias, metadata));
 
     internal void Pop() => _frames.RemoveAt(_frames.Count - 1);
+
+    internal void Select(string path)
+    {
+        if (path.Length == 0)
+            throw new RenderException("Starting path must not be empty");
+
+        int position = 0;
+        while (position < path.Length)
+        {
+            var (key, index) = ReadSelectionSegment(path, ref position);
+            object? value;
+            bool found;
+            if (key != null)
+                found = TryGetProperty(Current, key, out value);
+            else if (Current is IList list
+                && !(list is Array array && (array.Rank != 1 || array.GetLowerBound(0) != 0))
+                && index < list.Count)
+            {
+                found = true;
+                value = list[index];
+            }
+            else
+            {
+                value = null;
+                found = false;
+            }
+
+            if (!found)
+                throw new RenderException($"Starting path '{path}' could not be resolved at position {position}");
+            Push(value);
+
+            if (position == path.Length) return;
+            if (path[position] == '[') continue;
+            if (path[position++] != '.' || position == path.Length || path[position] == '[')
+                throw new RenderException($"Invalid starting path '{path}'");
+        }
+    }
+
+    private static (string? Key, int Index) ReadSelectionSegment(string path, ref int position)
+    {
+        int start = position;
+        if (path[position] != '[')
+        {
+            while (position < path.Length && path[position] != '.' && path[position] != '[')
+            {
+                char c = path[position++];
+                if (char.IsWhiteSpace(c) || c is ']' or '"' or '\'' or '\\')
+                    throw new RenderException($"Invalid starting path '{path}'");
+            }
+            if (position == start)
+                throw new RenderException($"Invalid starting path '{path}'");
+            return (path[start..position], -1);
+        }
+
+        position++;
+        if (position < path.Length && path[position] is '"' or '\'')
+        {
+            char quote = path[position++];
+            var key = new StringBuilder();
+            while (position < path.Length)
+            {
+                char c = path[position++];
+                if (c == quote)
+                {
+                    if (position == path.Length || path[position++] != ']')
+                        break;
+                    return (key.ToString(), -1);
+                }
+                if (c == '\\')
+                {
+                    if (position == path.Length) break;
+                    c = path[position++];
+                    if (c != quote && c != '\\') break;
+                }
+                key.Append(c);
+            }
+        }
+        else
+        {
+            start = position;
+            while (position < path.Length && path[position] >= '0' && path[position] <= '9')
+                position++;
+            if (position < path.Length && path[position++] == ']'
+                && int.TryParse(path[start..(position - 1)], NumberStyles.None, CultureInfo.InvariantCulture, out int index))
+                return (null, index);
+        }
+
+        throw new RenderException($"Invalid starting path '{path}'");
+    }
 
     internal bool TryResolve(string key, out object? value)
     {

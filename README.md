@@ -26,6 +26,51 @@ var output = Renderer.Render("Hello, {{name}}!", new { name = "world" });
 For sections, partials, aliases, lambdas, and every other language
 feature, see the [specification][spec].
 
+### Starting scope
+
+Pass `startingPath` to render from part of the original data:
+
+```csharp
+var data = new
+{
+    company = new
+    {
+        name = "Example",
+        departments = new { engineering = new { location = "London" } }
+    }
+};
+var output = Renderer.Render(
+    "{{location}} - {{name}} - {{@root.company.name}}",
+    data,
+    startingPath: "company.departments.engineering");
+// London - Example - Example
+```
+
+The instance `Render(TemplateNode, object?, string? startingPath = null)` API
+accepts the same selection. Each property or indexed element becomes a scope
+frame, so ordinary lookup searches the selected value and then its ancestors.
+Local `.name` lookup stays within the selected value, and `@root` remains the
+original data. Partials and lambda render callbacks inherit this scope stack.
+
+Starting paths support dotted properties, zero-based array/list indices such as
+`company.departments[0]`, and quoted keys such as `company["department.name"]`.
+Both single and double quotes are supported; escape the enclosing quote or a
+backslash with a backslash. Quoted keys can be empty or contain dots and brackets.
+Root indices and quoted keys, such as `[0].name` and `["company.name"]`, work too.
+Indexing requires an `IList` (including ordinary one-dimensional, zero-based
+arrays); arbitrary enumerable sequences are not enumerated for selection.
+This syntax is for starting paths only, not template expressions.
+
+Navigation always follows the specified path from the root, without ancestor
+fallback or invoking lambdas. Empty or malformed paths, missing properties,
+out-of-range indices, and traversal through null throw `RenderException`,
+regardless of strict mode. Selecting an existing null value is valid.
+Omitting `startingPath` or passing null preserves normal rendering.
+
+Selecting a collection does not iterate it or create iteration metadata.
+Use `{{#.}}{{@index}}: {{.}}{{/.}}` to iterate the selected collection normally.
+Selection does not mutate data or add wrapper text or whitespace.
+
 ### Dictionary partials
 
 Use `DictionaryPartialLoader` for partial templates already stored in memory:

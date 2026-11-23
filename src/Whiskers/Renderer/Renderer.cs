@@ -10,18 +10,20 @@ public sealed class Renderer(IPartialLoader? partials = null, RenderOptions? opt
     private bool _strictMode;
     private int _partialDepth;
 
-    public static string Render(string template, object? data, IPartialLoader? partials = null)
+    public static string Render(string template, object? data, IPartialLoader? partials = null, string? startingPath = null)
     {
         var tokens = new Lexer(template).Tokenize();
         var ast = new Parser(tokens, template).Parse();
-        return new Renderer(partials).Render(ast, data);
+        return new Renderer(partials).Render(ast, data, startingPath);
     }
 
-    public string Render(TemplateNode template, object? data)
+    public string Render(TemplateNode template, object? data, string? startingPath = null)
     {
         _strictMode = _options.StrictMode;
         var sb = new StringBuilder();
         var stack = new ContextStack(data);
+        if (startingPath != null)
+            stack.Select(startingPath);
         var stripped = StripStandalone(template.Children);
         RenderNodes(stripped, stack, sb, template.Source);
         return sb.ToString();

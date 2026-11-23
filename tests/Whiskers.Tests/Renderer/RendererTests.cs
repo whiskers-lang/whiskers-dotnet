@@ -22,6 +22,152 @@ public class RendererTests
         public string? Load(string name) => _map.TryGetValue(name, out var t) ? t : null;
     }
 
+    [Fact]
+    public void StartingScope_PreservesAncestorsRootAndLocalLookup()
+    {
+        var data = new
+        {
+            name = "root",
+            company = new
+            {
+                name = "Example",
+                departments = new { engineering = new { location = "London" } }
+            }
+        };
+        var result = Renderer.Render(
+            "  {{location}}|{{name}}|{{.name}}|{{@root.name}}|{{@root.company.name}}\n",
+            data, startingPath: "company.departments.engineering");
+        Assert.Equal("  London|Example||root|Example\n", result);
+    }
+
+    [Fact]
+    public void StartingScope_PartialsAndLambdaCallbacksInheritStack()
+    {
+        var scope = D(("name", "local"));
+        var data = D(
+            ("name", "root"),
+            ("scope", scope),
+            ("wrap", (Func<string, Func<string, string>, object>)((raw, render) => render(raw))));
+        var partials = new MockPartials(("item", "{{name}}/{{@root.name}}"));
+        Assert.Equal("local/root|local/root", Renderer.Render(
+            "{{>item}}|{{#wrap}}{{name}}/{{@root.name}}{{/wrap}}",
+            data, partials, startingPath: "scope"));
+        Assert.Single(scope);
+    }
+
+    [Fact]
+    public void StartingScope_NullSelectionRetainsAncestorLookup()
+    {
+        var ast = new Parser(new Lexer("{{.}}|{{name}}|{{@root.name}}").Tokenize(),
+            "{{.}}|{{name}}|{{@root.name}}").Parse();
+        var renderer = new Renderer(options: new RenderOptions(StrictMode: true));
+        Assert.Equal("|parent|parent",
+            renderer.Render(ast, D(("name", "parent"), ("child", null)), "child"));
+    }
+
+    [Fact]
+    public void StartingScope_CollectionOnlyIteratesExplicitly()
+    {
+        var data = D(("name", "root"), ("items", new[] { "a", "b" }));
+        Assert.Equal("once||0:a:True:False:root;1:b:False:True:root;",
+            Renderer.Render(
+                "once|{{@index}}|{{#.}}{{@index}}:{{.}}:{{@first}}:{{@last}}:{{name}};{{/.}}",
+                data, startingPath: "items"));
+    }
+
+    [Theory]
+    [InlineData("items[0].name", "first")]
+    [InlineData("items[1].name", "second")]
+    [InlineData("list[1].name", "second")]
+    [InlineData("[\"items\"][0][\"name\"]", "first")]
+    public void StartingScope_SelectsIndexedItems(string path, string expected)
+    {
+        var items = new[] { new { name = "first" }, new { name = "second" } };
+        Assert.Equal(expected, Renderer.Render("{{.}}",
+            D(("items", items), ("list", items.ToList())), startingPath: path));
+    }
+
+    [Fact]
+    public void StartingScope_IndexedItemRetainsCollectionAndObjectAncestors()
+    {
+        var data = D(("name", "root"), ("items", new[] { D(("value", "selected")) }));
+        Assert.Equal("selected|1|root|", Renderer.Render(
+            "{{value}}|{{Length}}|{{name}}|{{@index}}", data, startingPath: "items[0]"));
+        Assert.Equal("selected", Renderer.Render("{{value}}",
+            new[] { D(("value", "selected")) }, startingPath: "[0]"));
+    }
+
+    [Theory]
+    [InlineData("[\"a.b\"]", "a.b")]
+    [InlineData("['a.b']", "a.b")]
+    [InlineData("[\"\"]", "")]
+    [InlineData("[\"a[b]\"]", "a[b]")]
+    [InlineData("[\"a\\\"b\"]", "a\"b")]
+    [InlineData("['a\\'b']", "a'b")]
+    [InlineData("[\"a\\\\b\"]", "a\\b")]
+    [InlineData("[\"0\"]", "0")]
+    public void StartingScope_QuotedKeysAreLiteral(string path, string key)
+    {
+        Assert.Equal("selected", Renderer.Render("{{.}}",
+            D((key, "selected")), startingPath: path));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData(".company")]
+    [InlineData("company.")]
+    [InlineData("company..name")]
+    [InlineData("company.[0]")]
+    [InlineData("company[]")]
+    [InlineData("company[-1]")]
+    [InlineData("company[2147483648]")]
+    [InlineData("company[0")]
+    [InlineData("company[0]name")]
+    [InlineData("company]")]
+    [InlineData("company[\"name\"")]
+    [InlineData("company['name]")]
+    [InlineData("company[\"na\\qme\"]")]
+    public void StartingScope_RejectsMalformedPaths(string path)
+    {
+        Assert.Throws<RenderException>(() => Renderer.Render("unused",
+            D(("company", D(("name", "Example")))), startingPath: path));
+    }
+
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("company.name")]
+    [InlineData("child.name")]
+    [InlineData("items[1]")]
+    [InlineData("company[0]")]
+    [InlineData("text[0]")]
+    public void StartingScope_MissingSelectionThrowsWithoutAncestorFallback(string path)
+    {
+        var data = D(("name", "root"), ("company", D()), ("child", null),
+            ("items", new[] { "only" }), ("text", "abc"));
+        var error = Assert.Throws<RenderException>(() =>
+            Renderer.Render("unused", data, startingPath: path));
+        Assert.Contains(path, error.Message);
+    }
+
+    [Fact]
+    public void StartingScope_DoesNotInvokeLambdasDuringNavigation()
+    {
+        int calls = 0;
+        var data = D(("fn", (Func<object>)(() => { calls++; return D(("name", "value")); })));
+        Assert.Equal("constant", Renderer.Render("constant", data, startingPath: "fn"));
+        Assert.Throws<RenderException>(() => Renderer.Render("unused", data, startingPath: "fn.name"));
+        Assert.Equal(0, calls);
+    }
+
+    [Fact]
+    public void StartingScope_ExplicitNullPathPreservesDefaultRendering()
+    {
+        Assert.Equal("root", Renderer.Render("{{name}}", D(("name", "root")), startingPath: null));
+        Assert.Equal("", Renderer.Render("{{.}}", null, startingPath: null));
+        Assert.Throws<RenderException>(() => Renderer.Render("unused", null, startingPath: "missing"));
+    }
+
     // --- Text and variables ---
 
     [Fact] public void PlainText_RendersAsIs() =>
