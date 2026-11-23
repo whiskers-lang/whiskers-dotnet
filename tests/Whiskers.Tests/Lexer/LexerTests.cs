@@ -184,6 +184,19 @@ public class LexerTests
         Assert.Contains(tokens, t => t.Kind == TokenKind.NumLit && t.Value == "3.14");
     }
 
+    [Theory]
+    [InlineData("{{#lambdas.stripTrailing , }}", ',')]
+    [InlineData("{{fn foo!bar}}", '!')]
+    [InlineData("{{{fn , }}}", ',')]
+    [InlineData("{{& fn ; }}", ';')]
+    [InlineData("{{=<% %>=}}<%fn , %>", ',')]
+    public void UnsupportedTagCharacters_ThrowInsteadOfBeingDiscarded(string template, char character)
+    {
+        var error = Assert.Throws<ParseException>(() => Lex(template));
+        Assert.Contains($"Unexpected character '{character}' at position {template.IndexOf(character)}", error.Message);
+        Assert.Contains("Quote punctuation literals", error.Message);
+    }
+
     [Fact]
     public void DynamicPartial_EmitsGreaterThanThenStarThenIdent()
     {

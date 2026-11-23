@@ -222,6 +222,28 @@ public class RendererTests
         Assert.Equal("2026-01-01", Render("{{ts}}", data));
     }
 
+    [Theory]
+    [InlineData("\",\"", false)]
+    [InlineData(",", true)]
+    public void Lambda_PunctuationArgument_IsPassedOrRejectedBeforeInvocation(string argument, bool invalid)
+    {
+        var calls = 0;
+        var inspect = (Func<object?[], string, string>)((args, _) =>
+        {
+            calls++;
+            return Assert.IsType<string>(Assert.Single(args));
+        });
+        var data = D(("lambdas", D(("stripTrailing", inspect))));
+        var template = "{{#lambdas.stripTrailing " + argument + "  }}body{{/lambdas.stripTrailing}}";
+
+        if (invalid)
+            Assert.Throws<ParseException>(() => Render(template, data));
+        else
+            Assert.Equal(",", Render(template, data));
+
+        Assert.Equal(invalid ? 0 : 1, calls);
+    }
+
     [Fact] public void Lambda_InterpolationArguments_PreserveTypesAndResolveContext()
     {
         var inspect = (Func<object?[], object>)(args =>
