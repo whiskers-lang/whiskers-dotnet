@@ -119,7 +119,7 @@ public sealed class Lexer(string source, string open = "{{", string close = "}}"
             if (Ascii.IsDigit(c))                   { ReadNumLit(tokens); continue; }
             if (Ascii.IsLetter(c) || c == '_')      { ReadIdent(tokens); continue; }
 
-            _pos++;
+            throw new ParseException($"Unexpected character '{c}' at position {_pos}. Quote punctuation literals, for example \",\".");
         }
     }
 
